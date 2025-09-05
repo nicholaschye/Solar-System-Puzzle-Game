@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Solar System Puzzle</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet" />
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f0f9ff;
+        }
+        #game-board {
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        .drop-zone {
+            border: 2px dashed rgba(139, 92, 246, 0.5);
+            border-radius: 50%;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            text-align: center;
+        }
+        .drop-zone.over {
+            background-color: rgba(139, 92, 246, 0.2);
+            transform: scale(1.1);
+        }
+        .drop-zone.placed {
+            border: 2px solid #22c55e;
+            background-color: rgba(34, 197, 94, 0.2);
+        }
+        .puzzle-piece {
+            cursor: grab;
+            transition: transform 0.2s ease;
+            user-select: none;
+            touch-action: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+        .puzzle-piece:active {
+            cursor: grabbing;
+            transform: scale(1.1);
+            z-index: 100;
+        }
+        .piece-placeholder {
+            background-color: #e5e7eb;
+            border-radius: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .puzzle-piece img,
+        .drop-zone .puzzle-piece-content svg {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        #modal {
+            transition: opacity 0.5s, transform 0.5s;
+        }
+        #completion-content {
+            display: flex;
+            gap: 1.5rem;
+            align-items: flex-start;
+            justify-content: center;
+            width: 100%;
+        }
+        #results-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            max-height: 60vh;
+            overflow-y: auto;
+            padding-right: 1rem;
+            flex-grow: 1;
+        }
+        /* Custom scrollbar for results grid */
+        #results-grid::-webkit-scrollbar {
+            width: 8px;
+        }
+        #results-grid::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        #results-grid::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        #results-grid::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        @media (max-width: 768px) {
+            #completion-content {
+                flex-direction: column;
+                align-items: center;
+                max-height: 80vh;
+                overflow-y: auto;
+            }
+            #results-grid {
+                max-height: 50vh;
+                width: 100%;
+                padding-right: 0;
+            }
+        }
+    </style>
+</head>
+<body class="bg-blue-50 text-gray-800 flex flex-col items-center justify-center min-h-screen p-4">
+    <div id="game-container" class="w-full max-w-5xl mx-auto">
+        <h1 class="text-3xl md:text-4xl font-bold text-center text-blue-800 mb-2">Build the Solar System!</h1>
+        <p class="text-center text-gray-600 mb-4">Drag the items to their correct spots on the figure. You have 3 chances!</p>
+
+        <div class="flex justify-between items-center bg-white p-3 rounded-lg shadow-md mb-4 max-w-md mx-auto">
+            <div id="status-message" class="text-lg font-semibold text-violet-600 w-full text-center">Start Playing!</div>
+            <div class="flex items-center space-x-2 text-lg">
+                <span class="font-semibold text-red-500">Mistakes:</span>
+                <div id="attempts-counter" class="flex space-x-1"></div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="md:col-span-1 order-2 md:order-1">
+                <div
+                    id="pieces-container"
+                    class="bg-white/80 backdrop-blur-sm p-4 rounded-xl shadow-lg flex flex-wrap justify-center gap-4"
+                ></div>
+                <div class="text-center mt-4">
+                    <p class="text-sm text-gray-500 font-semibold">Developed by Nicholas</p>
+                    <p class="text-xs text-gray-400">for Shu Hui</p>
+                </div>
+            </div>
+            
+            <div class="md:col-span-2 w-full h-[60vh] md:h-[70vh] relative order-1 md:order-2">
+                <div id="game-board" class="w-full h-full"></div>
+            </div>
+        </div>
+    </div>
+
+    <div
+        id="modal"
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50 p-4"
+    >
+        <div
+            id="modal-content"
+            class="bg-white p-6 md:p-8 rounded-2xl shadow-2xl text-center transform transition-transform duration-300 scale-95 w-full max-w-4xl max-h-[90vh] flex flex-col"
+        >
+            <h2 id="modal-title" class="text-4xl md:text-5xl font-bold mb-4 flex-shrink-0"></h2>
+            <div id="modal-message" class="text-xl md:text-2xl mb-6 flex-grow flex flex-col items-center justify-center overflow-hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        const pieces = [
+            {
+                id: 'sun',
+                target: 'head',
+                name: 'Sun',
+                planet: 'Sun',
+                content:
+                    '<svg class="w-16 h-16 text-yellow-400" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" /><path d="M12 2v2m0 18v2m9-9h2M1 12h2m15.36-6.36l1.41-1.41M5.23 18.77l1.41 1.41m0-15.58L3.82 5.23m15.58 0l-1.41 1.41"/></svg>',
+            },
+            {
+                id: 'mars',
+                target: 'hand-raised',
+                name: 'Torch',
+                planet: 'Mars',
+                content:
+                    '<svg class="w-16 h-16" viewBox="0 0 24 24" fill="currentColor"><path fill="#A0522D" d="M11 22h2v-9h-2z"/><path fill="#FF4500" d="M12 2c-2.76 0-5 2.24-5 5 0 2.76 2.24 5 5 5s5-2.24 5-5c0-2.76-2.24-5-5-5z"/></svg>',
+            },
+            {
+                id: 'mercury',
+                target: 'neck',
+                name: 'Necklace',
+                planet: 'Mercury',
+                content: `
+                    <svg class="w-16 h-16 text-blue-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+                      <path d="M12 2a7 7 0 0 0-7 7v3a7 7 0 0 0 14 0v-3a7 7 0 0 0-7-7z"/>
+                      <circle cx="12" cy="14" r="3"/>
+                    </svg>
+                `,
+            },
+            {
+                id: 'venus',
+                target: 'chest',
+                name: 'Medal',
+                planet: 'Venus',
+                content:
+                    '<svg class="w-16 h-16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8" fill="#FBBF24"/><path fill="#F59E0B" d="M12 4c-4.41 0-8 3.59-8 8s3.59 8 8 8 8-3.59 8-8-3.59-8-8-8zm0 14c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/><path fill="#60A5FA" d="M12 2l-2 4h4l-2-4z"/></svg>',
+            },
+            {
+                id: 'earth',
+                target: 'chest-right',
+                name: 'Heart',
+                planet: 'Earth',
+                content:
+                    '<svg class="w-16 h-16 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd" /></svg>',
+            },
+            {
+                id: 'jupiter',
+                target: 'waist',
+                name: 'Belt',
+                planet: 'Jupiter',
+                content:
+                    '<svg class="w-20 h-20" viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="6" rx="2" fill="#A0522D"/><rect x="10" y="8" width="4" height="8" fill="#FBBF24"/><rect x="11" y="9" width="2" height="6" fill="#A0522D"/></svg>',
+            },
+            {
+                id: 'saturn',
+                target: 'feet',
+                name: 'Shoes',
+                planet: 'Saturn',
+                content:
+                    '<svg class="w-20 h-20" viewBox="0 0 24 24" fill="currentColor"><path d="M21.5 12.5c0-1.1-.9-2-2-2h-3.5c-.6 0-1.1.4-1.4.9l-2.5 4.1c-.3.5-.9.8-1.5.8H5c-1.1 0-2 .9-2 2v2c0 1.1.9 2 2 2h14.5c1.1 0 2-.9 2-2v-2c0-1.1-.9-2-2-2zM10 19c0 .6-.4 1-1 1H5c-.6 0-1-.4-1-1v-2c0-.6.4-1 1-1h4c.6 0 1 .4 1 1v2zM19.5 19c0 .6-.4 1-1 1h-4c-.6 0-1-.4-1-1v-2c0-.6.4-1 1-1h4c.6 0 1 .4 1 1v2z"/></svg>',
+            },
+            {
+                id: 'uranus',
+                target: 'corner-left',
+                name: 'Sky',
+                planet: 'Uranus',
+                content:
+                    '<svg class="w-16 h-16 text-sky-400" fill="currentColor" viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>',
+            },
+            {
+                id: 'neptune',
+                target: 'ground',
+                name: 'Waves',
+                planet: 'Neptune',
+                content:
+                    '<svg class="w-20 h-20 text-blue-600" viewBox="0 0 24 24"><path d="M2 12 Q 6 4, 11 12 T 22 12" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round"/><path d="M3 17 Q 7 9, 12 17 T 21 17" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round"/></svg>',
+            },
+        ];
+
+        const dropZones = [
+            { id: 'head', styles: 'top: 4%; left: 50%; transform: translateX(-50%); width: 26%; height: 25%;' },
+            { id: 'hand-raised', styles: 'top: 30%; right: 25%; transform: translateX(50%); width: 14%; height: 14%;' },
+            { id: 'neck', styles: 'top: 35%; left: 50%; transform: translateX(-50%); width: 14%; height: 12%;' },
+            { id: 'chest', styles: 'top: 42%; left: 50%; transform: translateX(-50%); width: 12%; height: 12%;' },
+            { id: 'chest-right', styles: 'top: 44%; left: 55%; transform: translateX(-50%); width: 12%; height: 12%;' },
+            { id: 'waist', styles: 'top: 53%; left: 50%; transform: translateX(-50%); width: 22%; height: 8%; border-radius: 1rem;' },
+            { id: 'feet', styles: 'bottom: 3%; left: 50%; transform: translateX(-50%); width: 28%; height: 8%; border-radius: 1rem;' },
+            { id: 'corner-left', styles: 'top: 12%; left: 70%; width: 15%; height: 15%;' },
+            { id: 'ground', styles: 'bottom: 0%; left: 54%; transform: translateX(-50%); width: 25%; height: 10%; border-radius: 1rem;' },
+        ];
+
+
+        const gameBoard = document.getElementById('game-board');
+        const piecesContainer = document.getElementById('pieces-container');
+        const statusMessage = document.getElementById('status-message');
+        const attemptsCounter = document.getElementById('attempts-counter');
+        const modal = document.getElementById('modal');
+        const modalContent = document.getElementById('modal-content');
+        const modalTitle = document.getElementById('modal-title');
+        const modalMessage = document.getElementById('modal-message');
+        
+        const blankFigureUrl = 'images/houmian.png';
+        const completedFigureUrl = 'images/planet.jpeg';
+
+        const MAX_ATTEMPTS = 3;
+        let incorrectAttempts = 0;
+        let correctPlacements = 0;
+
+        function initGame() {
+            incorrectAttempts = 0;
+            correctPlacements = 0;
+
+            modal.classList.add('hidden');
+            modalContent.classList.add('scale-95');
+            modalTitle.className = 'text-4xl md:text-5xl font-bold mb-4 text-violet-600';
+            modalMessage.innerHTML = '';
+
+            gameBoard.style.backgroundImage = `url('${blankFigureUrl}')`;
+            gameBoard.innerHTML = '';
+            piecesContainer.innerHTML = '';
+
+            const shuffledPieces = [...pieces].sort(() => Math.random() - 0.5);
+
+            shuffledPieces.forEach((piece) => {
+                const pieceWrapper = document.createElement('div');
+                pieceWrapper.id = `wrapper-${piece.id}`;
+                pieceWrapper.className = 'p-2 piece-placeholder h-24 w-24 flex items-center justify-center';
+
+                const pieceEl = document.createElement('div');
+                pieceEl.id = piece.id;
+                pieceEl.className = 'puzzle-piece';
+                pieceEl.draggable = true;
+                pieceEl.innerHTML = `
+                    <div class="flex flex-col items-center justify-center">
+                        <div class="puzzle-piece-content">${piece.content}</div>
+                        <span class="text-sm font-semibold mt-1 text-gray-700">${piece.name}</span>
+                    </div>
+                `;
+                pieceWrapper.appendChild(pieceEl);
+                piecesContainer.appendChild(pieceWrapper);
+            });
+
+            dropZones.forEach((zone) => {
+                const zoneEl = document.createElement('div');
+                zoneEl.id = `zone-${zone.id}`;
+                zoneEl.className = 'drop-zone absolute';
+                zoneEl.style.cssText = zone.styles;
+                zoneEl.dataset.target = zone.id;
+                gameBoard.appendChild(zoneEl);
+            });
+
+            updateAttemptsDisplay();
+            addEventListeners();
+        }
+
+        function updateAttemptsDisplay() {
+            attemptsCounter.innerHTML = '';
+            for (let i = 0; i < MAX_ATTEMPTS - incorrectAttempts; i++) {
+                attemptsCounter.innerHTML +=
+                    '<svg class="w-6 h-6 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd" /></svg>';
+            }
+            for (let i = 0; i < incorrectAttempts; i++) {
+                attemptsCounter.innerHTML +=
+                    '<svg class="w-6 h-6 text-gray-300" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd" /></svg>';
+            }
+        }
+
+        function showMessage(text, isCorrect) {
+            statusMessage.textContent = text;
+            statusMessage.className = `text-lg font-semibold w-full text-center ${isCorrect ? 'text-green-600' : 'text-red-600'}`;
+            setTimeout(() => {
+                statusMessage.textContent = 'Keep going!';
+                statusMessage.className = 'text-lg font-semibold w-full text-center text-violet-600';
+            }, 1500);
+        }
+
+        function handleDragStart(e) {
+            const piece = e.target.closest('.puzzle-piece');
+            if (piece) {
+                e.dataTransfer.setData('text/plain', piece.id);
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => {
+                    piece.style.opacity = '0.5';
+                }, 0);
+            }
+        }
+
+        function handleDragEnd(e) {
+            const piece = e.target.closest('.puzzle-piece');
+            if (piece) {
+                piece.style.opacity = '1';
+            }
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (e.target.classList.contains('drop-zone')) {
+                e.target.classList.add('over');
+            }
+        }
+
+        function handleDragLeave(e) {
+            if (e.target.classList.contains('drop-zone')) {
+                e.target.classList.remove('over');
+            }
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            const dropZone = e.target.closest('.drop-zone');
+            if (!dropZone || dropZone.classList.contains('placed')) return;
+
+            dropZone.classList.remove('over');
+            const pieceId = e.dataTransfer.getData('text/plain');
+            const pieceEl = document.getElementById(pieceId);
+            const pieceData = pieces.find((p) => p.id === pieceId);
+            const targetId = dropZone.dataset.target;
+
+            if (pieceData && pieceData.target === targetId) {
+                dropZone.innerHTML = `
+                    <div class="puzzle-piece-content flex flex-col items-center justify-center">
+                        ${pieceData.content}
+                        <span class="text-sm font-semibold mt-1 text-gray-700">${pieceData.name}</span>
+                    </div>
+                `;
+                dropZone.classList.add('placed');
+                pieceEl.parentElement.style.visibility = 'hidden'; // Hide original spot instead of removing
+
+                correctPlacements++;
+                showMessage('Correct!', true);
+
+                if (correctPlacements === pieces.length) {
+                    endGame(true);
+                }
+            } else {
+                incorrectAttempts++;
+                updateAttemptsDisplay();
+                showMessage('Not quite, try again!', false);
+
+                if (incorrectAttempts >= MAX_ATTEMPTS) {
+                    endGame(false);
+                }
+            }
+        }
+
+        function endGame(isVictory) {
+            if (isVictory) {
+                modalTitle.textContent = 'Congratulations!';
+                modalTitle.className = 'text-4xl md:text-5xl font-bold mb-4 text-green-500';
+
+                modalMessage.innerHTML = `
+                    <div class="flex flex-col items-center w-full h-full">
+                        <div id="completion-content">
+                            <img src="${completedFigureUrl}" 
+                                alt="Completed solar system alignment" 
+                                class="rounded-xl shadow-lg w-full max-w-xs md:max-w-sm flex-shrink-0" />
+                            <div id="results-grid">
+                                ${pieces
+                                    .slice()
+                                    .sort((a, b) => a.name.localeCompare(b.name))
+                                    .map(piece => `
+                                        <div class="flex items-center p-4 bg-white rounded-xl shadow-sm border border-gray-200">
+                                            <div class="w-14 h-14 flex-shrink-0 flex items-center justify-center">
+                                                ${piece.content}
+                                            </div>
+                                            <div class="ml-4 text-left">
+                                                <p class="font-bold text-gray-800 text-lg">${piece.name}</p>
+                                                <p class="text-violet-600 font-semibold text-base">${piece.planet}</p>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                            </div>
+                        </div>
+                        <button id="reset-button" 
+                            class="bg-green-600 text-white font-bold py-4 px-12 rounded-xl hover:bg-green-700 transition-colors text-xl shadow-md mt-6 flex-shrink-0">
+                            Play Again
+                        </button>
+                    </div>
+                `;
+
+                gameBoard.style.backgroundImage = `url('${completedFigureUrl}')`;
+                gameBoard.querySelectorAll('.drop-zone').forEach((zone) => zone.style.display = 'none');
+            } else {
+                // Game over logic
+                modalTitle.textContent = 'You Failed!';
+                modalTitle.className = 'text-4xl md:text-5xl font-bold mb-4 text-red-500';
+
+                modalMessage.innerHTML = `
+                    <div class="flex flex-col items-center">
+                        <p class="mb-6">You've run out of lives. Better luck next time!</p>
+                        <button id="reset-button" 
+                            class="bg-red-600 text-white font-bold py-4 px-12 rounded-xl hover:bg-red-700 transition-colors text-xl shadow-md">
+                            Try Again
+                        </button>
+                    </div>
+                `;
+            }
+
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modalContent.classList.remove('scale-95');
+            }, 10);
+
+            setTimeout(() => {
+                const resetButton = document.getElementById('reset-button');
+                if (resetButton) {
+                    resetButton.addEventListener('click', initGame);
+                }
+            }, 50);
+        }
+
+        function addEventListeners() {
+            piecesContainer.addEventListener('dragstart', handleDragStart);
+            piecesContainer.addEventListener('dragend', handleDragEnd);
+
+            gameBoard.addEventListener('dragover', handleDragOver);
+            gameBoard.addEventListener('dragleave', handleDragLeave);
+            gameBoard.addEventListener('drop', handleDrop);
+        }
+
+        document.addEventListener('DOMContentLoaded', initGame);
+    </script>
+</body>
+</html>
